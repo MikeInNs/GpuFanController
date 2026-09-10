@@ -97,7 +97,7 @@ must be chosen for your hardware and operating conditions.
 
 ### Install or update
 
-Once a GitHub release is published, download the installer and inspect it before
+Download the latest release installer and inspect it before
 running it as your normal user:
 
 ```sh
@@ -112,6 +112,11 @@ host mappings, and enables/starts the daemon. Use the same command for updates.
 It offers an optional, separately confirmed Nano update; **firmware is never
 flashed automatically**. Existing developer installations need
 [migration first](docs/RELEASES.md#migrating-the-existing-developer-installation).
+
+Release **1.7.1** fixes interactive installation/firmware-update prompts and still
+bundles Nano firmware **1.7.0**; no Nano reflash or recalibration is required.
+If an older downloaded installer reports `File or stream is not seekable`,
+download it again. See [installation troubleshooting](docs/RELEASES.md#installation-troubleshooting).
 
 ### First-time setup
 

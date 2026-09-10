@@ -23,6 +23,14 @@ SERVICE = 'gpu-fan-controller.service'
 BACKUPS = Path('/var/backups/gpu-fan-controller/firmware')
 
 
+def terminal_input(prompt):
+    # Keep this script standalone; terminals cannot support buffered r+ mode.
+    with open('/dev/tty', 'r') as reader, open('/dev/tty', 'w') as writer:
+        writer.write(prompt)
+        writer.flush()
+        return reader.readline().strip()
+
+
 def version(text):
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', text):
         raise ValueError('Invalid firmware version')
@@ -181,7 +189,7 @@ def paused_daemon(was_active):
             print('Daemon was stopped before this operation and remains stopped.')
 
 
-def update(port, identity, bootloader, firmware, image, backup, uninitialized=False):
+def update(port, identity, bootloader, firmware, image, backup, uninitialized=False, reinstall=False):
     before = None
     require_port_free(port)
     with Nano(str(port)) as nano:
@@ -194,9 +202,12 @@ def update(port, identity, bootloader, firmware, image, backup, uninitialized=Fa
                 raise RuntimeError('A controller answered Hello; use registered update mode, not --uninitialized')
         else:
             before = nano.snapshot()
-            if check_compatibility(before['hello'], firmware, identity):
+            already_current = check_compatibility(before['hello'], firmware, identity)
+            if already_current and not reinstall:
                 print('Selected Nano already has the packaged firmware; nothing flashed.')
                 return
+            if already_current:
+                print('Explicit reinstall: rewriting the same firmware with full backup and verification.')
             (backup / 'snapshot-before.json').write_text(json.dumps(before, indent=2) + '\n')
 
     def program(operation):
@@ -238,7 +249,10 @@ def main():
     selection.add_argument('--controller-id', help='32 lowercase hex digits from fanctl')
     selection.add_argument('--uninitialized', action='store_true', help='first flash only: no protocol response and erased EEPROM required')
     parser.add_argument('--bootloader', choices=('old', 'standard'), required=True, help='Nano ATmega328P upload protocol; no automatic guessing')
+    parser.add_argument('--reinstall', action='store_true', help='explicitly reflash an already-current registered Nano; all safety checks still apply')
     args = parser.parse_args()
+    if args.reinstall and args.uninitialized:
+        raise ValueError('--reinstall requires a registered controller, not --uninitialized')
     if args.controller_id and (not re.fullmatch('[0-9a-f]{32}', args.controller_id) or args.controller_id == '0' * 32):
         raise ValueError('Select a registered controller UUID')
     if os.geteuid() != 0:
@@ -264,16 +278,15 @@ def main():
         if was_active:
             check_daemon(port, args.controller_id)
         print(f'Selected {port}, controller {args.controller_id or "UNINITIALIZED"}, target {firmware["version"]}.')
+        if args.reinstall:
+            print('REINSTALL selected: current firmware will be flashed again; this is not a read-only test.')
         print('STOP GPU workloads; supervise cooling; close fanctl and other serial tools.')
         print('The daemon will pause for ALL controllers. Flashing/reset may interrupt cooling; the Nano watchdog cannot protect during programming.')
         print('Do not unplug USB or remove power. Settings backup is not an automatic firmware rollback.')
-        with open('/dev/tty', 'r+') as tty:
-            expected = 'FLASH ' + (args.controller_id or port.name)
-            tty.write('Type ' + expected + ' to confirm: ')
-            tty.flush()
-            if tty.readline().strip() != expected:
-                print('Cancelled; nothing flashed.')
-                return
+        expected = 'FLASH ' + (args.controller_id or port.name)
+        if terminal_input('Type ' + expected + ' to confirm: ') != expected:
+            print('Cancelled; nothing flashed.')
+            return
         if port.stat().st_rdev != device_identity:
             raise RuntimeError('Serial device changed during confirmation')
         if was_active:
@@ -286,7 +299,7 @@ def main():
         (backup / 'release.json').write_text(json.dumps(manifest, indent=2) + '\n')
         print('Private update backup:', backup, flush=True)
         with paused_daemon(was_active):
-            update(port, args.controller_id, args.bootloader, firmware, image, backup, args.uninitialized)
+            update(port, args.controller_id, args.bootloader, firmware, image, backup, args.uninitialized, args.reinstall)
 
 
 if __name__ == '__main__':

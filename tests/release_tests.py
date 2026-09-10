@@ -5,10 +5,14 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import pty
+import select
 import struct
 import subprocess
 import tempfile
+import termios
 import unittest
 from unittest.mock import patch
 
@@ -42,6 +46,44 @@ def snapshot(firmware='1.5.0', identity=IDENTITY):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_terminal_prompts_on_nonseekable_device(self):
+        for target in (installer, updater):
+            with self.subTest(script=target.__name__):
+                master, slave = pty.openpty()
+                try:
+                    path = os.ttyname(slave)
+                    attributes = termios.tcgetattr(slave)
+                    attributes[3] &= ~termios.ECHO
+                    termios.tcsetattr(slave, termios.TCSANOW, attributes)
+                    # Demonstrate the original bug on this actual terminal.
+                    with self.assertRaises(io.UnsupportedOperation):
+                        open(path, 'r+')
+                    def terminal_open(filename, mode):
+                        self.assertEqual(filename, '/dev/tty')
+                        return open(path, mode)
+                    with patch.object(target, 'open', side_effect=terminal_open, create=True):
+                        os.write(master, b'yes\n')
+                        self.assertEqual(target.terminal_input('Confirm? '), 'yes')
+                        ready, _, _ = select.select([master], [], [], 1)
+                        self.assertTrue(ready, 'Prompt must be flushed before reading')
+                        self.assertIn(b'Confirm? ', os.read(master, 4096))
+                        os.write(master, b'\x04')
+                        self.assertEqual(target.terminal_input('Confirm again? '), '')
+                finally:
+                    os.close(master)
+                    os.close(slave)
+
+    def test_optional_firmware_prompt_decline_and_selection(self):
+        for answer in ('', 'n', 'no'):
+            with patch.object(installer, 'terminal_input', return_value=answer), patch.object(installer.subprocess, 'run') as run:
+                installer.offer_firmware_update(['sudo', '--'])
+                run.assert_not_called()
+        with (patch.object(installer, 'terminal_input', side_effect=['yes', '/dev/ttyUSB0', IDENTITY, 'old']),
+              patch.object(installer.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run):
+            installer.offer_firmware_update(['sudo', '--'])
+            run.assert_called_once_with(['sudo', '--', '/usr/sbin/gpu-fan-controller-update-firmware',
+                                         '--port', '/dev/ttyUSB0', '--bootloader', 'old', '--controller-id', IDENTITY])
+
     def test_container_smoke_includes_package_documentation(self):
         script = (ROOT / 'tests/package_smoke.sh').read_text()
         self.assertIn('[[ -f /.dockerenv && -d /packages ]]', script)
@@ -124,8 +166,9 @@ class ReleaseTests(unittest.TestCase):
             self.assertTrue(all('/releases/download/v1.6.0/' in url for url in urls[1:]))
 
     def test_manifest_and_tag(self):
-        with patch.dict('os.environ', {'GITHUB_REF': 'refs/tags/v1.7.0'}):
-            self.assertEqual(builder.validate_metadata()['version'], '1.7.0')
+        release_version = json.loads((ROOT / 'release.json').read_text())['version']
+        with patch.dict('os.environ', {'GITHUB_REF': 'refs/tags/v' + release_version}):
+            self.assertEqual(builder.validate_metadata()['version'], release_version)
         with patch.dict('os.environ', {'GITHUB_REF': 'refs/tags/v9.9.9'}):
             with self.assertRaises(ValueError):
                 builder.validate_metadata()
@@ -181,7 +224,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertNotIn('-e', command)
             self.assertEqual(command[-1], 'flash:w:/image.hex:i')
 
-    def simulate_update(self, before=None, after=None, corrupt=False, fail_flash=False, bad_backup=False):
+    def simulate_update(self, before=None, after=None, corrupt=False, fail_flash=False, bad_backup=False, reinstall=False):
         before = before or snapshot()
         after = after or snapshot('1.6.0')
         operations = []
@@ -213,7 +256,7 @@ class ReleaseTests(unittest.TestCase):
             backup = Path(folder)
             with patch.object(updater, 'Nano', FakeNano), patch.object(updater, 'require_port_free'), patch.object(updater.subprocess, 'run', side_effect=program):
                 try:
-                    updater.update(Path('/dev/ttyUSB0'), IDENTITY, 'old', FIRMWARE, Path('/image.hex'), backup)
+                    updater.update(Path('/dev/ttyUSB0'), IDENTITY, 'old', FIRMWARE, Path('/image.hex'), backup, reinstall=reinstall)
                     error = None
                 except RuntimeError as caught:
                     error = caught
@@ -238,6 +281,30 @@ class ReleaseTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertFalse(success)
         self.assertEqual(operations, [])
+
+    def test_explicit_current_version_reinstall(self):
+        operations, error, success = self.simulate_update(before=snapshot('1.6.0'), reinstall=True)
+        self.assertIsNone(error)
+        self.assertTrue(success)
+        self.assertEqual([op.split(':')[:2] for op in operations], [['eeprom', 'r'], ['flash', 'w'], ['eeprom', 'r']])
+
+    def test_reinstall_does_not_bypass_safety_checks(self):
+        for before, bad_backup in ((snapshot('1.6.0', 'a' * 32), False),
+                                   (snapshot('1.7.0'), False), (snapshot('1.4.0'), False),
+                                   (snapshot('1.6.0'), True)):
+            operations, error, success = self.simulate_update(before=before, bad_backup=bad_backup, reinstall=True)
+            self.assertIsNotNone(error)
+            self.assertFalse(success)
+            self.assertFalse(any(op.startswith('flash:') for op in operations))
+        for kwargs in ({'corrupt': True}, {'fail_flash': True}, {'after': snapshot('1.5.0')}):
+            _, error, success = self.simulate_update(before=snapshot('1.6.0'), reinstall=True, **kwargs)
+            self.assertIsNotNone(error)
+            self.assertFalse(success)
+
+    def test_reinstall_rejects_uninitialized_selection(self):
+        with patch('sys.argv', ['update-firmware.py', '--port', '/dev/ttyUSB0', '--bootloader', 'old', '--uninitialized', '--reinstall']):
+            with self.assertRaisesRegex(ValueError, 'registered controller'):
+                updater.main()
 
     def test_no_false_success(self):
         for kwargs in ({'corrupt': True}, {'fail_flash': True}, {'after': snapshot('1.5.0')},

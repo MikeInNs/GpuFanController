@@ -17,6 +17,14 @@ REPOSITORY = 'mikeinns/GpuFanController'
 SERVICE = 'gpu-fan-controller.service'
 
 
+def terminal_input(prompt):
+    # A terminal is not seekable: use separate streams, not buffered r+ mode.
+    with open('/dev/tty', 'r') as reader, open('/dev/tty', 'w') as writer:
+        writer.write(prompt)
+        writer.flush()
+        return reader.readline().strip()
+
+
 class HttpsRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not newurl.startswith('https://'):
@@ -80,16 +88,11 @@ def metadata(data, version):
 
 def offer_firmware_update(sudo):
     # Never invoked by --yes; this prompt is separate from host installation.
-    with open('/dev/tty', 'r+') as tty:
-        tty.write('Update one Nano now? This requires stopped workloads and supervised cooling. [y/N] ')
-        tty.flush()
-        if tty.readline().strip().lower() not in ('y', 'yes'):
-            return
-        values = []
-        for prompt in ('Exact USB serial port: ', 'Controller UUID (or NEW for a first-time blank Nano): ', 'Bootloader (old or standard): '):
-            tty.write(prompt)
-            tty.flush()
-            values.append(tty.readline().strip())
+    if terminal_input('Update one Nano now? This requires stopped workloads and supervised cooling. [y/N] ').lower() not in ('y', 'yes'):
+        return
+    values = []
+    for prompt in ('Exact USB serial port: ', 'Controller UUID (or NEW for a first-time blank Nano): ', 'Bootloader (old or standard): '):
+        values.append(terminal_input(prompt))
     port, identity, bootloader = values
     if not port.startswith('/dev/') or bootloader not in ('old', 'standard'):
         raise ValueError('Invalid firmware selection; host remains installed')
@@ -140,12 +143,9 @@ def main():
     print('Existing mappings are preserved. A running daemon is restarted. Nano firmware is NOT flashed.')
     print('Confirm fan power/wiring: valid GPU temperatures allow configured fan curves to resume.')
     if not args.yes:
-        with open('/dev/tty', 'r+') as tty:
-            tty.write('Install host package? [y/N] ')
-            tty.flush()
-            if tty.readline().strip().lower() not in ('y', 'yes'):
-                print('Cancelled; nothing installed.')
-                return
+        if terminal_input('Install host package? [y/N] ').lower() not in ('y', 'yes'):
+            print('Cancelled; nothing installed.')
+            return
     sudo = [] if os.geteuid() == 0 else ['sudo', '--']
     with tempfile.TemporaryDirectory(prefix='gpu-fan-install-') as temporary:
         package = Path(temporary) / filename

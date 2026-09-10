@@ -40,7 +40,7 @@ port, UUID (or NEW for an erased first-time board), bootloader, and the updater'
 separate typed safety confirmation. `--yes` never opens this firmware prompt.
 
 The same command updates the host to the latest stable release. For an exact
-version, use `python3 gpu-fan-install.py --version 1.7.0 --start`. Downgrades are
+version, use `python3 gpu-fan-install.py --version 1.7.1 --start`. Downgrades are
 refused. The script resolves latest once, then uses version-specific HTTPS URLs
 and SHA-256 checks for the manifest and package. It validates Ubuntu/architecture
 and Debian package name/version/architecture before invoking APT. Shared-library
@@ -96,7 +96,8 @@ For a registered controller the updater:
 
 1. Matches UUID and selected port against the running daemon when available.
 2. After stopping the daemon, verifies protocol/identity/source firmware and
-   reads configuration/calibration. Already-current firmware is skipped.
+   reads configuration/calibration. Already-current firmware is skipped unless
+   the explicit `--reinstall` option is supplied.
 3. Reads and validates a complete 1 KB EEPROM backup, including schema/CRC/UUID,
    before any flash write. Unknown schemas, corrupt storage, firmware older than
    1.5.0, and downgrades require manual review and are refused by this release.
@@ -116,6 +117,33 @@ without a backup. Existing 1.5.x calibration is preserved; no recalibration is
 required solely for the bundled 1.7.0 firmware. Its optional adapter-name records
 use previously unused EEPROM space without changing the cooling/calibration schema;
 see [adapter names](NANO_CONFIGURATION.md#adapter-names).
+
+For a supervised same-version flash test, add `--reinstall` to the registered
+controller command above. This performs a real flash write, not a dry run. It
+still requires typed UUID confirmation, a valid EEPROM backup, supported source
+firmware, byte-for-byte EEPROM preservation and post-flash verification. It does
+not permit downgrades, bypass an unsupported bootloader's EEPROM-read limitation,
+or work with `--uninitialized`. Without this flag an already-current Nano is not
+flashed.
+
+### Bench validation and limits
+
+On September 10, 2026, the corrected updater was bench-tested in Ubuntu 24.04
+under WSL with USB/IP and a classic old-bootloader ATmega328P Nano. It reflashed
+the published 1.7.0 application image using explicit `--reinstall`, verified flash,
+and confirmed byte-for-byte equality of the complete before/after EEPROM reads.
+Controller identity, configuration, calibration and their generations were
+unchanged. The packaged daemon restarted and resumed valid temperature forwarding
+from the laptop's internal Quadro P1000.
+
+No GPUs depended on the controller's fans during this test. Supply-voltage and
+stopped-fan alerts remained visible; the test did not validate cooling under load,
+first-time flashing, every clone bootloader, or physical AMD hardware. Retain the
+updater's private backups and require its `SUCCESS` marker; successful flashing
+alone does not establish cooling readiness. Release 1.7.1 changes host update tools
+only and still bundles firmware 1.7.0; existing 1.7.0 Nanos do not need reflashing.
+
+### First-time board
 
 For a first-time board, explicitly select `--uninitialized` instead of the UUID:
 
@@ -153,6 +181,20 @@ does not delete or silently migrate developer files. On installation failure,
 diagnose APT/systemd output before resuming workloads. APT installation is not a
 transactional application rollback: retain the previous `.deb` and config backup
 for a reviewed manual recovery. Do not downgrade across incompatible contracts.
+
+## Installation troubleshooting
+
+If a previously downloaded 1.7.0 installer reports `File or stream is not
+seekable`, download the latest installer again using the command above. Release
+1.7.1 fixes interactive terminal prompts in both the installer and firmware
+updater. For host installation only, `--yes` bypasses the old broken prompt; it
+also skips the optional firmware question and never authorizes flashing. It does
+not fix the old installed updater, so upgrade the host package before using that
+tool interactively.
+
+After migrating from a developer installation, Bash may still remember
+`/usr/local/bin/fanctl`. Run `hash -r` (or open a new terminal), then
+`command -v fanctl`; a release installation should resolve to `/usr/bin/fanctl`.
 
 ## Uninstall
 
