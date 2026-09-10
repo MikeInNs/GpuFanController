@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+case "$1" in
+    configure|abort-upgrade|abort-remove|abort-deconfigure) ;;
+    *) exit 0 ;;
+esac
+account=gpu-fan-controller
+getent group "$account" >/dev/null || addgroup --system "$account"
+id "$account" >/dev/null 2>&1 || adduser --system --ingroup "$account" --home /var/lib/gpu-fan-controller --no-create-home --shell /usr/sbin/nologin "$account"
+for group in dialout video render; do
+    if getent group "$group" >/dev/null; then usermod -a -G "$group" "$account"; fi
+done
+for path in /etc/gpu-fan-controller /etc/gpu-fan-controller/config.json /var/lib/gpu-fan-controller; do
+    if [ -L "$path" ]; then echo "Refusing symlink: $path" >&2; exit 1; fi
+done
+install -d -o "$account" -g "$account" -m 0750 /etc/gpu-fan-controller
+# Runtime configuration is created once, never shipped as an overwriteable file.
+if [ ! -e /etc/gpu-fan-controller/config.json ]; then
+    install -o "$account" -g "$account" -m 0600 /usr/share/gpu-fan-controller/default-config.json /etc/gpu-fan-controller/config.json
+fi
+chown "$account:$account" /etc/gpu-fan-controller/config.json
+chmod 0600 /etc/gpu-fan-controller/config.json
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    # try-restart only resumes an already-running service; fresh installs stay stopped.
+    deb-systemd-invoke try-restart gpu-fan-controller.service
+fi
+echo 'Host package installed. Nano firmware has NOT been changed.'

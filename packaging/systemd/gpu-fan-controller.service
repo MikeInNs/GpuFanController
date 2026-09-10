@@ -1,0 +1,26 @@
+[Unit]
+Description=GPU Fan Controller daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gpu-fan-controllerd --config /etc/gpu-fan-controller/config.json
+Restart=on-failure
+RestartSec=2
+User=gpu-fan-controller
+Group=gpu-fan-controller
+SupplementaryGroups=dialout
+# WSL exposes NVIDIA's tool here; native Ubuntu resolves it earlier in PATH.
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/wsl/lib"
+RuntimeDirectory=gpu-fan-controller
+RuntimeDirectoryMode=0750
+StateDirectory=gpu-fan-controller
+StateDirectoryMode=0750
+ConfigurationDirectory=gpu-fan-controller
+ConfigurationDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,56 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Config / monitor (installed daemon)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/fanctl",
+      "args": ["--port", "8787"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "externalConsole": false,
+      "internalConsoleOptions": "neverOpen",
+      "preLaunchTask": "Build: host"
+    },
+    {
+      "name": "Daemon (debug, port 8788)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/gpu-fan-controllerd",
+      "args": ["--port", "8788", "--config", "${workspaceFolder}/build/debug/daemon-config.json"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "externalConsole": false,
+      "internalConsoleOptions": "neverOpen",
+      "preLaunchTask": "Build: host"
+    },
+    {
+      "name": "Curve editor prototype (offline, mouse enabled)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/curve-prototype/fanctl-curve-prototype",
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "externalConsole": false,
+      "internalConsoleOptions": "neverOpen",
+      "preLaunchTask": "Build: curve prototype"
+    },
+    {
+      "name": "Config / monitor (debug daemon, port 8788)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/fanctl",
+      "args": ["--port", "8788"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "externalConsole": false,
+      "internalConsoleOptions": "neverOpen",
+      "preLaunchTask": "Build: host"
+    }
+  ]
+}

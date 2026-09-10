@@ -1,0 +1,51 @@
+name: Publish release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate reviewed release notes
+        run: python3 scripts/build-release.py --validate-only
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ubuntu24.04-amd64-release
+          path: assets
+      - name: Verify release asset hashes and tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd assets
+          sha256sum --check SHA256SUMS
+          python3 -c 'import json, os; m=json.load(open("release.json")); assert "v"+m["version"] == os.environ["RELEASE_TAG"]; assert not m["sourceDirty"]'
+      - uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: assets/*
+      - name: Create draft, attach assets, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file ".github/release-notes/${RELEASE_TAG}.md" --title "$RELEASE_TAG" assets/*
+          gh release edit "$RELEASE_TAG" --draft=false --latest

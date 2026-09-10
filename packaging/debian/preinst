@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+# A developer install would shadow /usr/bin and the vendor unit. Never overwrite it.
+for path in /usr/local/bin/fanctl /usr/local/bin/gpu-fan-controllerd /etc/systemd/system/gpu-fan-controller.service; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        echo "Developer/custom installation at $path. Follow docs/RELEASES.md migration instructions first." >&2
+        exit 1
+    fi
+done
+for path in /etc/gpu-fan-controller /etc/gpu-fan-controller/config.json /var/lib/gpu-fan-controller; do
+    if [ -L "$path" ]; then echo "Refusing symlink: $path" >&2; exit 1; fi
+done
+if [ -f /etc/gpu-fan-controller/config.json ]; then
+    backup=$(mktemp -d /var/backups/gpu-fan-package-XXXXXXXX)
+    cp -p /etc/gpu-fan-controller/config.json "$backup/config.json"
+    echo "Host configuration backup: $backup/config.json"
+fi

@@ -1,0 +1,25 @@
+[Unit]
+Description=GPU Fan Controller daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/gpu-fan-controllerd --config /etc/gpu-fan-controller/config.json
+Restart=on-failure
+RestartSec=2
+User=gpu-fan-controller
+Group=gpu-fan-controller
+SupplementaryGroups=dialout
+Environment="PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/wsl/lib"
+RuntimeDirectory=gpu-fan-controller
+StateDirectory=gpu-fan-controller
+ConfigurationDirectory=gpu-fan-controller
+RuntimeDirectoryMode=0750
+StateDirectoryMode=0750
+ConfigurationDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

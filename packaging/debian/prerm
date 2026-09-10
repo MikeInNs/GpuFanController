@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# Keep the old daemon running until postinst try-restarts the new version.
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+    deb-systemd-invoke stop gpu-fan-controller.service
+    systemctl disable gpu-fan-controller.service
+fi

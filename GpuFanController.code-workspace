@@ -1,0 +1,11 @@
+{
+  "folders": [
+    {
+      "name": "GPU Fan Controller",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.eol": "\n"
+  }
+}

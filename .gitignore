@@ -1,0 +1,67 @@
+# Build directories (host applications, tests, dependencies, and firmware)
+/build/
+/build-*/
+/cmake-build-*/
+
+# CMake/Ninja outputs, including accidental in-source builds
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
+/_deps/
+/Testing/
+/fanctl
+/gpu-fan-controllerd
+
+# Machine-specific CMake overrides; keep shared CMakePresets.json
+CMakeUserPresets.json
+
+# Compiled objects and exported Arduino images; keep firmware source
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dll
+*.exe
+*.pdb
+/firmware/**/*.hex
+/firmware/**/*.elf
+/firmware/**/*.eep
+/firmware/**/*.bin
+/firmware/**/*.map
+
+# Local daemon configuration; keep config/examples/ tracked
+/daemon-config.json
+/config/config.json
+/config/daemon.json
+/config/*.local.json
+/config/local/
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python test caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Logs, editor recovery files, and OS metadata
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vs/
+
+# Shared .vscode tasks, launch settings, and Arduino settings stay tracked.

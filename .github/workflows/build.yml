@@ -1,0 +1,44 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config python3 git libcpp-httplib-dev nlohmann-json3-dev dpkg-dev
+      - uses: arduino/setup-arduino-cli@81d310742121c928ea9c8bbd407b4217b432ae02 # v2.0.0
+        with:
+          version: '1.5.1'
+      - name: Validate versions and install pinned AVR core
+        run: |
+          python3 scripts/build-release.py --validate-only
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.8
+      - name: Build and test host and firmware policies
+        run: bash scripts/build-host.sh release --test
+      - name: Build Nano image (never upload)
+        run: bash scripts/upload-firmware.sh --build-only
+      - name: Package release
+        run: python3 scripts/build-release.py
+      - name: Test package installation in isolated Ubuntu container
+        run: |
+          docker run --rm -v "$PWD/build/release-assets:/packages:ro" -v "$PWD/tests/package_smoke.sh:/test.sh:ro" ubuntu:24.04 bash /test.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ubuntu24.04-amd64-release
+          path: build/release-assets/
+          if-no-files-found: error

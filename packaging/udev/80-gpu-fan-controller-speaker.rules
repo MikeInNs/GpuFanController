@@ -1,0 +1,2 @@
+# Optional: only the PC Speaker event node, never keyboards or the entire input group.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="PC Speaker", GROUP="gpu-fan-controller", MODE="0660", SYMLINK+="gpu-fan-controller-speaker"

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "version": "1.7.0",
+  "repository": "mikeinns/GpuFanController",
+  "ubuntu": "24.04",
+  "architecture": "amd64",
+  "firmware": {
+    "version": "1.7.0",
+    "protocol": 2,
+    "eepromSchema": 5,
+    "compatibleFrom": "1.5.0",
+    "image": "FanControllerFirmware.ino.hex",
+    "arduinoCli": "1.5.1",
+    "avrCore": "1.8.8",
+    "fqbn": "arduino:avr:nano:cpu=atmega328old"
+  }
+}

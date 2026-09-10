@@ -1,0 +1,106 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build: curve prototype",
+      "type": "process",
+      "command": "bash",
+      "args": ["${workspaceFolder}/scripts/build-curve-prototype.sh"],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Configure: host",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "debug"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: host",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/build-host.sh",
+        "debug"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Test: host",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/build-host.sh",
+        "debug",
+        "--test"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: host release",
+      "type": "process",
+      "command": "bash",
+      "args": ["${workspaceFolder}/scripts/build-host.sh", "release", "--test"],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Install: daemon (enable/start)",
+      "type": "process",
+      "command": "sudo",
+      "args": ["bash", "${workspaceFolder}/scripts/install-daemon.sh", "release", "--start"],
+      "dependsOn": "Build: host release",
+      "presentation": {"reveal": "always", "focus": true, "panel": "dedicated"},
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: firmware",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/upload-firmware.sh",
+        "--build-only"
+      ],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Build: firmware hardware test",
+      "type": "process",
+      "command": "${env:HOME}/.local/bin/arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "arduino:avr:nano:cpu=atmega328old",
+        "firmware/FanControllerHardwareTest"
+      ],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Upload: firmware",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/upload-firmware.sh",
+        "--port",
+        "${input:firmwarePort}"
+      ],
+      "presentation": {"reveal": "always", "panel": "dedicated"},
+      "problemMatcher": "$gcc"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "firmwarePort",
+      "type": "promptString",
+      "description": "Nano serial port to upload (verify the controller; close other serial tools)",
+      "default": "/dev/ttyUSB0"
+    }
+  ]
+}

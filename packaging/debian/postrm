@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+if [ "$1" = purge ]; then
+    deb-systemd-helper purge gpu-fan-controller.service
+    echo 'Mappings and firmware-update backups retained; see RELEASES.md for manual cleanup.'
+fi
+if [ -d /run/systemd/system ]; then systemctl daemon-reload; fi
