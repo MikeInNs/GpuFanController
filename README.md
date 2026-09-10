@@ -113,8 +113,10 @@ It offers an optional, separately confirmed Nano update; **firmware is never
 flashed automatically**. Existing developer installations need
 [migration first](docs/RELEASES.md#migrating-the-existing-developer-installation).
 
-Release **1.7.1** fixes interactive installation/firmware-update prompts and still
-bundles Nano firmware **1.7.0**; no Nano reflash or recalibration is required.
+Release **1.7.2** adds editable controller names in Setup and a numbered firmware
+update picker, so UUIDs no longer need to be entered manually. It includes the
+interactive-prompt fixes and still bundles Nano firmware **1.7.0**; no Nano
+reflash or recalibration is required.
 If an older downloaded installer reports `File or stream is not seekable`,
 download it again. See [installation troubleshooting](docs/RELEASES.md#installation-troubleshooting).
 

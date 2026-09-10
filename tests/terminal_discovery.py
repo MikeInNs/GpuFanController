@@ -15,6 +15,21 @@ for width,height in [(100,32),(76,24)]:
         assert f.config['controllers'][0]['groups'][0]['gpuPciAddress']=='0000:01:00.0'
         assert f.config['controllers'][0]['groups'][1]['gpuPciAddress']=='0000:02:00.0'
         assert f.writes[-1][0]=='/api/v1/config'
+        # Controller labels are host-only drafts; q is text, not the quit shortcut.
+        def rename(value):
+            _,y=t.position('Controller name:');t.mouse(25,y);t.mouse(25,y,release=True)
+            t.send(b'\x1b[F'+b'\x7f'*70+value.encode())
+        count=len(f.writes)
+        rename('Quadro quiet cooling');t.expect('Quadro quiet cooling')
+        assert t.proc.poll() is None and len(f.writes)==count
+        t.click('Group 2');t.click('Reload');t.expect('Quadro quiet cooling')
+        save(t);t.click('Close');t.expect('All changes saved')
+        assert f.config['controllers'][0]['name']=='Quadro quiet cooling'
+        assert len(f.writes)==count+1 and f.writes[-1][0]=='/api/v1/config'
+        rename('');t.click('Save changes');t.expect('Save blocked');t.expect('1-64');t.click('Close')
+        assert len(f.writes)==count+1
+        t.click('Controller >');t.click('< Controller');t.expect('Unsaved changes:')
+        discard(t);t.expect('Quadro quiet cooling')
         t.click('Group 1');t.click('Read Nano');t.expect('Nano snapshot loaded');t.click('Curve');t.expect('1800 - 9000')
         _,top=t.position('Measured RPM:');t.mouse(40,top+4);t.mouse(40,top+4,release=True);t.send(b'2\x1b[A')
         t.expect('Unsaved changes:');count=len(f.writes)

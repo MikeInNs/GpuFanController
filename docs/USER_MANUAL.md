@@ -98,6 +98,15 @@ changing anything. `< Controller` / `Controller >` select a different Nano;
 `Group 1` / `Group 2` select the fan pair on that Nano. A group normally cools
 one GPU. USB paths can change; the saved controller identity is what matters.
 
+In **Setup**, edit **Controller name** for a registered Nano (for example,
+`V100 cooling`), then use **Save changes** and confirm the review. The name uses
+1-64 printable ASCII characters and cannot be blank. It is saved in the daemon's
+configuration, not on the Nano; the permanent UUID, GPU mappings and calibration
+are unchanged. Names need not be unique, so always check the port/identity too.
+The firmware updater also shows saved names in its numbered controller picker.
+Unsaved names survive tab/group/controller switches and Reload, and can be
+discarded with other drafts. The Setup screenshot above predates this name field.
+
 Click a tab or button with the mouse. Use **Tab / Shift+Tab** to move focus and
 **Enter** to activate. **Esc** closes a dialog or quits; unsaved edits prompt
 before they are discarded. Dialogs default to the safe Cancel choice: explicitly
@@ -117,7 +126,7 @@ should open Alerts and investigate.
 
 Use **Save changes** in the footer from any page to review all pending persistent edits.
 
-You can edit mappings, both fan groups, curves, thresholds, startup settings and
+You can edit controller names, mappings, both fan groups, curves, thresholds, startup settings and
 the beeper preference before saving. Switching tabs, groups or controllers keeps
 your edits—even an unfinished numeric input. None of those actions writes to the
 daemon or Nano.

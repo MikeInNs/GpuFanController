@@ -21,6 +21,16 @@ add live fan control to the host or automatic update behavior. See
 [release and recovery policy](RELEASES.md). Developer `/usr/local` installations
 and packaged `/usr/bin` installations are deliberately kept mutually exclusive.
 
+The bootstrap delegates optional firmware selection to this installed helper.
+Its interactive picker reads cached daemon inventory plus existing host `name`
+fields, resolves number/manual-port choices to permanent UUIDs, and never runs
+an implicit USB scan. Labels are presentation metadata and need not be unique.
+After displaying the selection, `FLASH` is the explicit write confirmation;
+daemon UUID/port and actual Nano identity are still checked before writing.
+Unknown devices never automatically enter the separate erased-EEPROM first-time
+path. Setup edits the existing host name through the unified save coordinator;
+there is no Nano protocol/EEPROM or periodic-communication change.
+
 ## Components and runtime
 
 Linux host components use C++20, CMake and CTest. `gpu-fan-controllerd` uses

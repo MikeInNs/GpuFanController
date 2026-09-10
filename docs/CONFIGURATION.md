@@ -17,6 +17,10 @@ The daemon user needs read/write serial access (usually membership in `dialout`)
    writes no controller configuration or identity.
 2. Use the controller arrows to select a Nano. Click **Register Nano** and confirm
    the EEPROM write if unregistered. Existing IDs are never reassigned.
+   Edit **Controller name** in Setup to give a registered controller a useful
+   label, such as `V100 cooling`. This is a host-only draft until **Save changes**;
+   changing it never changes the Nano UUID, EEPROM or calibration. Names appear
+   in the UI and the firmware updater's controller picker.
 3. Select **Group 1** or **Group 2**, then use the GPU arrows to select a GPU or
    none. Duplicate assignments are rejected. Groups 1/2 correspond to wire and
    JSON indexes 0/1. None disables the host mapping, not the Nano output.
@@ -128,7 +132,10 @@ Example with one GPU and the second group unused:
 Use the ID returned by discovery, not this example ID. IDs are 32 lowercase hex
 digits representing the 16 firmware bytes; all-zero is unclaimed and cannot be
 saved. Names use 1-64 printable ASCII characters. Up to 32 controllers are allowed,
-with exactly two ordered groups each. Each GPU can belong to only one group across
+and names may be duplicated (identity is always the UUID). Empty, all-space,
+overlong and non-ASCII names are rejected at Save, preserving the draft for correction.
+There is no controller-name schema change or new firmware requirement.
+Each controller has exactly two ordered groups. Each GPU can belong to only one group across
 all controllers. Enabled groups require a canonical lowercase PCI address; disabled
 groups require null, never a fabricated GPU or temperature of zero.
 

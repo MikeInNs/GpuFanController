@@ -153,7 +153,8 @@ def check_daemon(port, identity):
         raise RuntimeError('Unexpected local service')
     if identity:
         selected = [c for c in inventory['controllers'] if c.get('controllerId') == identity]
-        if len(selected) != 1 or Path(selected[0]['path']).resolve() != port:
+        on_port = [c for c in inventory['controllers'] if Path(c['path']).resolve() == port]
+        if len(selected) != 1 or len(on_port) != 1 or Path(selected[0]['path']).resolve() != port:
             raise RuntimeError('Controller UUID/port does not match daemon inventory; Read Nano or scan first')
     # Stopping the daemon affects all controllers, not just the selected one.
     for controller in inventory['controllers']:
@@ -161,6 +162,110 @@ def check_daemon(port, identity):
         if identifier and re.fullmatch('[0-9a-f]{32}', identifier):
             if api('controllers/' + identifier + '/status')['status']['calibrationActive']:
                 raise RuntimeError('A controller is calibrating; wait or explicitly abort in fanctl first')
+
+
+def registered_identity(value):
+    return isinstance(value, str) and re.fullmatch('[0-9a-f]{32}', value) is not None and value != '0' * 32
+
+
+def controller_choices():
+    """Read cached daemon metadata only; never scan/reset serial devices here."""
+    inventory = api('status')
+    if inventory.get('service') != 'gpu-fan-controller' or not isinstance(inventory.get('controllers'), list):
+        raise ValueError('Unexpected daemon inventory')
+    if len(inventory['controllers']) > 64:
+        raise ValueError('Unexpected controller inventory size')
+    names = {}
+    try:
+        configuration = api('config')
+        for controller in configuration['controllers']:
+            name = controller.get('name', '')
+            if (isinstance(name, str) and 1 <= len(name) <= 64 and name.strip()
+                    and all(32 <= ord(c) < 127 for c in name)):
+                names[controller['controllerId']] = name
+    except (OSError, ValueError, KeyError, TypeError):
+        print('Friendly names unavailable; selecting by port and permanent identity.')
+    choices, identities, paths = [], set(), set()
+    for controller in inventory['controllers']:
+        path = controller.get('path')
+        if not isinstance(path, str) or not path.startswith('/dev/') or any(ord(c) < 32 for c in path):
+            raise ValueError('Invalid serial path in daemon inventory')
+        path = str(Path(path).resolve())
+        if not re.fullmatch(r'/dev/tty(USB|ACM)[0-9]+', path):
+            raise ValueError('Unexpected serial device in daemon inventory')
+        identity = controller.get('controllerId')
+        if path in paths or (registered_identity(identity) and identity in identities):
+            raise ValueError('Ambiguous controller inventory; resolve duplicate UUIDs/ports before flashing')
+        paths.add(path)
+        if identity is not None and not registered_identity(identity):
+            raise ValueError('Invalid controller identity in daemon inventory')
+        if identity:
+            identities.add(identity)
+        firmware = controller.get('firmware', '')
+        if not isinstance(firmware, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', firmware):
+            raise ValueError('Invalid firmware version in daemon inventory')
+        choices.append({'port': path, 'identity': identity, 'name': names.get(identity, 'Unnamed controller'),
+                        'firmware': firmware, 'uninitialized': False})
+    return choices
+
+
+def choose_controller(port=None):
+    try:
+        choices = controller_choices()
+    except OSError:
+        choices = []
+        print('Daemon unavailable. Start it and Scan USB in FanCtl to select an existing Nano.')
+    print('Known controllers (cached inventory; identity will be verified on the device):')
+    registered = [c for c in choices if c['identity']]
+    for number, controller in enumerate(registered, 1):
+        print(f'  {number}. {controller["name"]} | {controller["port"]} | firmware {controller["firmware"]} | ID {controller["identity"][:8]}...')
+    if not registered:
+        print('  No registered controllers available. Use FanCtl Scan USB/Register Nano if firmware is already installed.')
+    if port:
+        resolved = str(Path(port).resolve())
+        matches = [c for c in registered if c['port'] == resolved]
+        if len(matches) != 1:
+            raise RuntimeError('No unique registered UUID for this port. Start the daemon and Scan USB/Register Nano in FanCtl; unknown is NOT blank.')
+        return matches[0]
+    while True:
+        answer = terminal_input('Select number, M for manual USB port, N for first-time blank Nano, or Enter to cancel: ')
+        if not answer or answer.lower() == 'q':
+            return None
+        if answer.isascii() and answer.isdigit() and 1 <= int(answer) <= len(registered):
+            return registered[int(answer) - 1]
+        if answer.lower() in ('m', 'n'):
+            entered = terminal_input('Exact USB serial port (Enter to cancel): ')
+            if not entered:
+                return None
+            resolved = str(Path(entered).resolve())
+            if not entered.startswith('/dev/') or not re.fullmatch(r'/dev/tty(USB|ACM)[0-9]+', resolved):
+                print('Enter a Linux USB serial port, for example /dev/ttyUSB0.')
+                continue
+            matches = [c for c in choices if c['port'] == resolved]
+            if answer.lower() == 'm':
+                if len(matches) == 1 and matches[0]['identity']:
+                    return matches[0]
+                print('UUID unavailable. Use FanCtl Scan USB/Register Nano; unknown is NOT blank.')
+            elif matches:
+                print('This port has a controller reporting firmware. First-time mode is not permitted; use FanCtl registration/update.')
+            else:
+                print('FIRST-TIME path: requires no Hello response and fully erased EEPROM; this is not recovery mode.')
+                return {'port': resolved, 'identity': None, 'name': 'First-time blank Nano',
+                        'firmware': 'unknown', 'uninitialized': True}
+            continue
+        print('Select a listed number, M, N, or Enter to cancel.')
+
+
+def choose_bootloader():
+    while True:
+        answer = terminal_input('Bootloader: old (57600) or standard (115200); Enter to cancel: ').lower()
+        if answer in ('', 'old', 'standard'):
+            return answer
+        print('Enter old or standard; no bootloader is guessed automatically.')
+
+
+def confirm_flash():
+    return terminal_input('Type FLASH to confirm this selected controller (Enter to cancel): ') == 'FLASH'
 
 
 def avrdude_command(port, bootloader, operation):
@@ -244,15 +349,18 @@ def update(port, identity, bootloader, firmware, image, backup, uninitialized=Fa
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', required=True, help='explicit /dev/ttyUSB* or /dev/serial/by-id/... path')
-    selection = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument('--interactive', action='store_true', help='select a named controller from cached daemon inventory (default without a port)')
+    parser.add_argument('--port', help='explicit /dev/ttyUSB* or /dev/serial/by-id/... path; UUID looked up when omitted')
+    selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--controller-id', help='32 lowercase hex digits from fanctl')
     selection.add_argument('--uninitialized', action='store_true', help='first flash only: no protocol response and erased EEPROM required')
-    parser.add_argument('--bootloader', choices=('old', 'standard'), required=True, help='Nano ATmega328P upload protocol; no automatic guessing')
+    parser.add_argument('--bootloader', choices=('old', 'standard'), help='Nano ATmega328P upload protocol; prompted if omitted, never guessed')
     parser.add_argument('--reinstall', action='store_true', help='explicitly reflash an already-current registered Nano; all safety checks still apply')
     args = parser.parse_args()
     if args.reinstall and args.uninitialized:
         raise ValueError('--reinstall requires a registered controller, not --uninitialized')
+    if (args.controller_id or args.uninitialized) and (not args.port or args.interactive):
+        raise ValueError('Explicit identity/first-time options require --port and cannot be combined with --interactive')
     if args.controller_id and (not re.fullmatch('[0-9a-f]{32}', args.controller_id) or args.controller_id == '0' * 32):
         raise ValueError('Select a registered controller UUID')
     if os.geteuid() != 0:
@@ -261,6 +369,23 @@ def main():
     # Serialize against apt/dpkg host upgrades and other firmware updaters.
     with open('/var/lib/dpkg/lock-frontend', 'a') as package_lock:
         fcntl.lockf(package_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        selected_name = 'Explicit controller'
+        selected_firmware = 'verified after daemon pause'
+        if not args.controller_id and not args.uninitialized:
+            selected = choose_controller(args.port)
+            if selected is None:
+                print('Cancelled; nothing flashed.')
+                return
+            args.port, args.controller_id = selected['port'], selected['identity']
+            args.uninitialized = selected['uninitialized']
+            selected_name, selected_firmware = selected['name'], selected['firmware']
+            if args.reinstall and args.uninitialized:
+                raise ValueError('--reinstall requires a registered controller, not a first-time board')
+        if not args.bootloader:
+            args.bootloader = choose_bootloader()
+            if not args.bootloader:
+                print('Cancelled; nothing flashed.')
+                return
         port = Path(args.port).resolve(strict=True)
         if not str(port).startswith('/dev/') or not re.fullmatch(r'tty(USB|ACM)[0-9]+', port.name) or not stat.S_ISCHR(port.stat().st_mode):
             raise RuntimeError('Select an explicit USB serial character device')
@@ -277,14 +402,15 @@ def main():
         was_active = subprocess.run(['systemctl', 'is-active', '--quiet', SERVICE]).returncode == 0
         if was_active:
             check_daemon(port, args.controller_id)
-        print(f'Selected {port}, controller {args.controller_id or "UNINITIALIZED"}, target {firmware["version"]}.')
+        print(f'Selected {selected_name} | {port} | firmware {selected_firmware} -> {firmware["version"]}.')
+        print('Permanent controller UUID: ' + (args.controller_id or 'UNINITIALIZED (erased EEPROM required)'))
+        print('Bootloader: ' + args.bootloader)
         if args.reinstall:
             print('REINSTALL selected: current firmware will be flashed again; this is not a read-only test.')
         print('STOP GPU workloads; supervise cooling; close fanctl and other serial tools.')
         print('The daemon will pause for ALL controllers. Flashing/reset may interrupt cooling; the Nano watchdog cannot protect during programming.')
         print('Do not unplug USB or remove power. Settings backup is not an automatic firmware rollback.')
-        expected = 'FLASH ' + (args.controller_id or port.name)
-        if terminal_input('Type ' + expected + ' to confirm: ') != expected:
+        if not confirm_flash():
             print('Cancelled; nothing flashed.')
             return
         if port.stat().st_rdev != device_identity:

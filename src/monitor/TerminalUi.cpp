@@ -57,6 +57,13 @@ public:
         register_=button("Register Nano",[this]{registerNano();});
         mapPrevious_=button("< GPU",[this]{mapGpu(-1);});
         mapNext_=button("GPU >",[this]{mapGpu(1);});
+        auto nameOption=InputOption::Default();
+        nameOption.multiline=false;
+        nameOption.on_change=[this]{
+            if(selectedId().empty()) return;
+            board().config["name"]=controllerName_;syncHost();
+        };
+        controllerNameInput_=Input(&controllerName_,"1-64 printable ASCII characters",nameOption);
         fit_=button("Fit to calibration",[this]{graph_->fit();});
         discard_=button("Discard changes",[this]{discardChanges();});
         apply_=button("Save changes",[this]{saveChanges();});
@@ -83,7 +90,8 @@ public:
         tabs_=Menu(&tabNames_,&tab_,mainTabStyle());
         auto toolbar=Container::Horizontal({scan_,reload_,quit_});
         auto selection=Container::Horizontal({previous_,next_,group1_,group2_,read_});
-        auto mappingControls=Container::Horizontal({register_,mapPrevious_,mapNext_});
+        auto mappingButtons=Container::Horizontal({register_,mapPrevious_,mapNext_});
+        auto mappingControls=Container::Vertical({Maybe(controllerNameInput_,[this]{return !selectedId().empty();}),mappingButtons});
         auto mapping=Renderer(mappingControls,[this]{return mappingView();});
         statusTable_=std::make_shared<ScrollPage>([this]{
             if(!liveApi_) return statusView(snapshot_,group_);
@@ -184,7 +192,7 @@ public:
             poll(event==Event::Custom);
             if(event==Event::Custom) return true;
             if(event==Event::Escape) {if(modal_) {modal_=0;confirmation_={};} else quit();return true;}
-            if(event==Event::Character('q') && !modal_ && tab_!=3) {quit();return true;}
+            if(event==Event::Character('q') && !modal_ && tab_!=3 && !controllerNameInput_->Focused()) {quit();return true;}
             if(pending_.valid() && (!backgroundPoll_ || !event.is_mouse())) return true;
             if(modal_==1 && event==Event::Return && (cancel_->Focused() || dialogText_->Focused())) {
                 modal_=0;confirmation_={};return true;
@@ -257,6 +265,8 @@ private:
     std::string dialogTitle_="Please confirm",confirmLabel_="Confirm",cancelLabel_="Cancel";
     Component root_,pages_,tabs_,scan_,reload_,quit_,previous_,next_,group1_,group2_,read_,register_,mapPrevious_,mapNext_,fit_,discard_,apply_,cancel_;
     Component startCalibration_,abortCalibration_;
+    Component controllerNameInput_;
+    std::string controllerName_;
     Component calibrationTable_;
     Component dialogText_;
 
@@ -348,6 +358,7 @@ private:
         for(const auto& [key,value]:supply.items()) draft_.editSupply(target,key,value);
     }
     void showDraft() {
+        controllerName_=model_.boards.empty()?"":board().config.at("name").get<std::string>();
         const auto target=selectedId();clearSnapshot();
         if(target.empty() || !draft_.hasNano(target)) return;
         snapshot_=draft_.latestNano(target);sampled_=observedAt_.contains(target)?observedAt_.at(target):Clock::now();
@@ -633,6 +644,10 @@ private:
         if(!model_.boards.empty()) {
             const auto& b=model_.boards[board_];
             rows.push_back(text("ID: "+(b.config["controllerId"].is_null()?"unregistered":b.config["controllerId"].get<std::string>())+"  Firmware: "+b.firmware));
+            if(!b.config["controllerId"].is_null()) {
+                rows.push_back(hbox({text("Controller name: "),controllerNameInput_->Render()|flex|bgcolor(Color::GrayDark)}));
+                rows.push_back(text("Host label only; Save changes applies. UUID remains permanent.")|dim);
+            } else rows.push_back(text("Register Nano before editing its controller name.")|dim);
             for(int g=0;g<2;++g) {
                 const auto& pci=b.config["groups"][g]["gpuPciAddress"];
                 std::string label="Group "+std::to_string(g+1)+": "+(pci.is_null()?"none (disabled host mapping)":pci.get<std::string>());

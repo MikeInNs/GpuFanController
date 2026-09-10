@@ -35,12 +35,13 @@ and starts the service. Without it, fresh installs stay stopped; an already
 running packaged service is restarted on upgrade.
 
 Interactive installation ends by offering an optional single-Nano update. Decline
-it to configure/discover hardware in fanctl first. Accepting requires an explicit
-port, UUID (or NEW for an erased first-time board), bootloader, and the updater's
-separate typed safety confirmation. `--yes` never opens this firmware prompt.
+it to configure/discover hardware in fanctl first. Accepting opens the installed
+updater's numbered controller picker, using cached daemon inventory and saved
+friendly names. Select one controller, choose its bootloader, review the full
+identity and type `FLASH`. `--yes` never opens this firmware prompt.
 
 The same command updates the host to the latest stable release. For an exact
-version, use `python3 gpu-fan-install.py --version 1.7.1 --start`. Downgrades are
+version, use `python3 gpu-fan-install.py --version 1.7.2 --start`. Downgrades are
 refused. The script resolves latest once, then uses version-specific HTTPS URLs
 and SHA-256 checks for the manifest and package. It validates Ubuntu/architecture
 and Debian package name/version/architecture before invoking APT. Shared-library
@@ -71,22 +72,46 @@ binds only to 127.0.0.1; do not expose it to the network.
 
 ## Explicit firmware update
 
+The named controller picker and simple `FLASH` confirmation require host package
+1.7.2 or newer. Download a fresh installer to get the same workflow at the end of
+host installation. Controller names are editable in FanCtl's Setup page starting
+with this version. The Nano firmware remains 1.7.0.
+
 The package includes an application-only Nano ATmega328P image. Nothing in APT
 or the installer flashes it. Use the updater separately, once per controller:
 
 ```sh
-sudo gpu-fan-controller-update-firmware \
-  --port /dev/serial/by-id/REPLACE_WITH_SELECTED_DEVICE \
-  --controller-id REPLACE_WITH_32_HEX_DIGIT_UUID --bootloader old
+sudo gpu-fan-controller-update-firmware --interactive
 ```
 
-Get the UUID/port from `fanctl` or `fanctl status --json`; never infer identity
-from a CH340 USB identifier. `--bootloader old` uses 57600 baud; `standard` uses
+The picker displays the saved controller name, USB port, firmware version and
+short UUID. Select by number, or choose **M** to enter a USB port and look up its
+UUID automatically. It reads the daemon's cached inventory without scanning or
+resetting ports. If the controller is missing, start the daemon and use **Scan
+USB** in FanCtl; a Nano already running controller firmware must be registered
+there before it can be selected. **Enter** cancels without stopping the daemon.
+
+Friendly names are edited in **FanCtl > Setup > Controller name**, then **Save
+changes**. They live in host configuration, not Nano EEPROM; renaming does not
+change identity, mappings or calibration. Names may be duplicated: selection
+always includes a port and UUID, never a name-only match.
+
+For an explicit port with automatic UUID lookup:
+
+```sh
+sudo gpu-fan-controller-update-firmware --port /dev/ttyUSB0 --bootloader old
+```
+
+Advanced callers may still supply `--controller-id UUID` with an explicit port
+(including when the daemon is stopped). Never infer identity from a CH340 USB
+identifier. `--bootloader old` uses 57600 baud; `standard` uses
 115200. Both target the classic ATmega328P Nano, not Nano Every/ESP32 or other
 boards. There is no automatic bootloader fallback or bulk-device selection.
 
 Stop GPU workloads, close the UI/serial tools and supervise cooling. The updater
-requires typing the selected UUID to confirm. It pauses the daemon for **all**
+shows the full selected identity and requires typing `FLASH` to confirm. It
+rechecks daemon identity/port after confirmation and verifies the actual Nano
+identity before flashing. It pauses the daemon for **all**
 controllers, so every GPU needs attention. It rejects active calibration reported
 by a running daemon before stopping it. Serial opening/reset can itself interrupt
 operation. Neither the normal watchdog nor software full-speed mode guarantees
@@ -120,7 +145,7 @@ see [adapter names](NANO_CONFIGURATION.md#adapter-names).
 
 For a supervised same-version flash test, add `--reinstall` to the registered
 controller command above. This performs a real flash write, not a dry run. It
-still requires typed UUID confirmation, a valid EEPROM backup, supported source
+still requires typed `FLASH` confirmation, a valid EEPROM backup, supported source
 firmware, byte-for-byte EEPROM preservation and post-flash verification. It does
 not permit downgrades, bypass an unsupported bootloader's EEPROM-read limitation,
 or work with `--uninitialized`. Without this flag an already-current Nano is not
@@ -145,14 +170,17 @@ only and still bundles firmware 1.7.0; existing 1.7.0 Nanos do not need reflashi
 
 ### First-time board
 
-For a first-time board, explicitly select `--uninitialized` instead of the UUID:
+For a first-time board, choose **N** in the picker and enter its exact USB port,
+or explicitly select `--uninitialized` instead of the UUID:
 
 ```sh
 sudo gpu-fan-controller-update-firmware --port /dev/ttyUSB0 \
   --uninitialized --bootloader old
 ```
 
-This requires **no protocol Hello response and fully erased EEPROM**. It is not
+Unknown/unregistered does not mean blank. A port already in the daemon's
+controller inventory cannot use the picker's first-time path. Every first-time
+flash still requires **no protocol Hello response and fully erased EEPROM**. It is not
 a recovery bypass for a registered controller, unknown stored data or a damaged
 installation. Afterward use fanctl to register, map, configure and calibrate.
 Failed updates need supervised diagnosis/manual recovery with the retained backup;

@@ -90,17 +90,8 @@ def offer_firmware_update(sudo):
     # Never invoked by --yes; this prompt is separate from host installation.
     if terminal_input('Update one Nano now? This requires stopped workloads and supervised cooling. [y/N] ').lower() not in ('y', 'yes'):
         return
-    values = []
-    for prompt in ('Exact USB serial port: ', 'Controller UUID (or NEW for a first-time blank Nano): ', 'Bootloader (old or standard): '):
-        values.append(terminal_input(prompt))
-    port, identity, bootloader = values
-    if not port.startswith('/dev/') or bootloader not in ('old', 'standard'):
-        raise ValueError('Invalid firmware selection; host remains installed')
-    if identity != 'NEW' and not re.fullmatch('[0-9a-f]{32}', identity):
-        raise ValueError('Invalid controller UUID; host remains installed')
-    selection = ['--uninitialized'] if identity == 'NEW' else ['--controller-id', identity]
-    result = subprocess.run(sudo + ['/usr/sbin/gpu-fan-controller-update-firmware', '--port', port,
-                                   '--bootloader', bootloader] + selection)
+    # Keep selection and safety checks in the installed maintenance tool.
+    result = subprocess.run(sudo + ['/usr/sbin/gpu-fan-controller-update-firmware', '--interactive'])
     if result.returncode:
         raise RuntimeError('Host installed, but optional firmware update failed/cancelled; supervise cooling and inspect updater output')
 
@@ -176,8 +167,8 @@ def main():
             raise RuntimeError('Package installed but daemon health check failed; inspect journalctl -u ' + SERVICE)
     print('Host installation complete.' + (' Daemon responding.' if active else ' Service is stopped; start it when cooling is supervised.'))
     print('Run fanctl to discover/register controllers and map GPUs; hardware readiness is separate from service health.')
-    print('Optional firmware update (explicit port, controller UUID and bootloader required):')
-    print('  sudo gpu-fan-controller-update-firmware --help')
+    print('Optional firmware update (select one controller; bootloader and FLASH confirmation required):')
+    print('  sudo gpu-fan-controller-update-firmware --interactive')
     print('No automatic discovery, calibration, firmware flashing, NVIDIA driver installation, or USB/IP changes were performed.')
     if not args.yes:
         offer_firmware_update(sudo)

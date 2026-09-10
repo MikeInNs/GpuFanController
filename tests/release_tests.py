@@ -78,11 +78,82 @@ class ReleaseTests(unittest.TestCase):
             with patch.object(installer, 'terminal_input', return_value=answer), patch.object(installer.subprocess, 'run') as run:
                 installer.offer_firmware_update(['sudo', '--'])
                 run.assert_not_called()
-        with (patch.object(installer, 'terminal_input', side_effect=['yes', '/dev/ttyUSB0', IDENTITY, 'old']),
+        with (patch.object(installer, 'terminal_input', return_value='yes'),
               patch.object(installer.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run):
             installer.offer_firmware_update(['sudo', '--'])
-            run.assert_called_once_with(['sudo', '--', '/usr/sbin/gpu-fan-controller-update-firmware',
-                                         '--port', '/dev/ttyUSB0', '--bootloader', 'old', '--controller-id', IDENTITY])
+            run.assert_called_once_with(['sudo', '--', '/usr/sbin/gpu-fan-controller-update-firmware', '--interactive'])
+
+    def choice_inventory(self):
+        return {'service': 'gpu-fan-controller', 'controllers': [
+            {'controllerId': IDENTITY, 'path': '/dev/ttyUSB0', 'firmware': '1.7.0'},
+            {'controllerId': 'a' * 32, 'path': '/dev/ttyUSB1', 'firmware': '1.6.0'}]}
+
+    def choice_api(self, path):
+        if path == 'status':
+            return self.choice_inventory()
+        if path == 'config':
+            return {'controllers': [{'controllerId': IDENTITY, 'name': 'V100 cooling'},
+                                    {'controllerId': 'a' * 32, 'name': 'V100 cooling'}]}
+        self.fail('Unexpected API operation: ' + path)
+
+    def test_named_picker_and_manual_port(self):
+        for answers, expected in ((['2'], 'a' * 32), (['99', 'm', '/dev/ttyUSB0'], IDENTITY)):
+            with (patch.object(updater, 'api', side_effect=self.choice_api),
+                  patch.object(updater, 'terminal_input', side_effect=answers),
+                  patch('sys.stdout', new_callable=io.StringIO) as output):
+                selected = updater.choose_controller()
+                self.assertEqual(selected['identity'], expected)
+                self.assertEqual(selected['name'], 'V100 cooling')
+                self.assertIn('firmware 1.7.0', output.getvalue())
+                self.assertIn(IDENTITY[:8] + '...', output.getvalue())
+        with patch.object(updater, 'api', side_effect=self.choice_api):
+            self.assertEqual(updater.choose_controller('/dev/ttyUSB0')['identity'], IDENTITY)
+            with self.assertRaisesRegex(RuntimeError, 'NOT blank'):
+                updater.choose_controller('/dev/ttyUSB9')
+
+    def test_picker_cancellation_and_unknown_is_not_blank(self):
+        for answers in ([''], ['m', ''], ['m', '/dev/ttyUSB9', ''], ['n', '/dev/ttyUSB0', '']):
+            with patch.object(updater, 'api', side_effect=self.choice_api), patch.object(updater, 'terminal_input', side_effect=answers):
+                self.assertIsNone(updater.choose_controller())
+        with patch.object(updater, 'api', side_effect=self.choice_api), patch.object(updater, 'terminal_input', side_effect=['n', '/dev/ttyUSB9']):
+            selected = updater.choose_controller()
+            self.assertTrue(selected['uninitialized'])
+            self.assertIsNone(selected['identity'])
+
+    def test_picker_offline_and_ambiguous_fail_closed(self):
+        with patch.object(updater, 'api', side_effect=OSError('offline')), patch.object(updater, 'terminal_input', return_value=''):
+            self.assertIsNone(updater.choose_controller())
+            with self.assertRaises(RuntimeError):
+                updater.choose_controller('/dev/ttyUSB0')
+        for key, value in (('path', '/dev/ttyUSB0'), ('controllerId', IDENTITY)):
+            inventory = self.choice_inventory()
+            inventory['controllers'][1][key] = value
+            with patch.object(updater, 'api', side_effect=lambda path: inventory if path == 'status' else {'controllers': []}):
+                with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+                    updater.controller_choices()
+
+    def test_picker_unregistered_and_unsafe_labels(self):
+        inventory = self.choice_inventory()
+        inventory['controllers'][0]['controllerId'] = None
+        def api(path):
+            return inventory if path == 'status' else {'controllers': [{'controllerId': 'a' * 32, 'name': '\x1b[2J'}]}
+        with patch.object(updater, 'api', side_effect=api), patch.object(updater, 'terminal_input', side_effect=['m', '/dev/ttyUSB0', 'n', '/dev/ttyUSB0', '']):
+            self.assertIsNone(updater.choose_controller())
+            self.assertEqual(updater.controller_choices()[1]['name'], 'Unnamed controller')
+
+    def test_flash_confirmation_is_explicit_and_simple(self):
+        for value in ('', 'yes', 'flash', IDENTITY, 'FLASH ' + IDENTITY, 'FLASH'):
+            with patch.object(updater, 'terminal_input', return_value=value):
+                self.assertEqual(updater.confirm_flash(), value == 'FLASH')
+        with patch.object(updater, 'terminal_input', side_effect=['unknown', 'old']):
+            self.assertEqual(updater.choose_bootloader(), 'old')
+
+    def test_changed_daemon_identity_or_port_refused(self):
+        for controller in ({'controllerId': 'a' * 32, 'path': '/dev/ttyUSB0'},
+                           {'controllerId': IDENTITY, 'path': '/dev/ttyUSB1'}):
+            with patch.object(updater, 'api', return_value={'service': 'gpu-fan-controller', 'controllers': [controller]}):
+                with self.assertRaisesRegex(RuntimeError, 'does not match'):
+                    updater.check_daemon(Path('/dev/ttyUSB0'), IDENTITY)
 
     def test_container_smoke_includes_package_documentation(self):
         script = (ROOT / 'tests/package_smoke.sh').read_text()
